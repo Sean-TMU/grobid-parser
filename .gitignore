@@ -1,0 +1,11 @@
+# log info
+*.log
+
+# model file
+*.bin
+
+# pyc file
+*.pyc
+
+# export result
+result/
