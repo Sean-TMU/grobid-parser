@@ -19,10 +19,10 @@ class GrobidParser:
     def __init__(self, config_path="./config.json"):
         self.client = GrobidClient(config_path=config_path)
         
-    def parse_pdf(self, pdf_file: str) -> dict:
+    def parse_pdf(self, pdf_file: str, pdf_root_path: str) -> dict:
         """Main method to parse PDF and return structured data"""
         try:
-            xml_path = self._process_pdf(pdf_file)
+            xml_path = self._process_pdf(pdf_file, pdf_root_path)
             if xml_path and os.path.exists(xml_path):
                 return self._parse_xml(xml_path)
             return None
@@ -30,10 +30,8 @@ class GrobidParser:
             logger.error(f"Error parsing PDF {pdf_file}: {str(e)}")
             return None
 
-    def _process_pdf(self, pdf_file: str) -> str:
+    def _process_pdf(self, pdf_file: str, pdf_root_path: str) -> str:
         """Process PDF through Grobid service"""
-        p = Path.cwd()
-        pdf_root_path = str(p.parent.joinpath('dataset/medical_paper/'))
         output_path = f"{pdf_root_path}/out/"
         filename = os.path.splitext(os.path.basename(pdf_file))[0]
         xml_path = str(Path(output_path).joinpath(f'{filename}.grobid.tei.xml'))
@@ -43,9 +41,10 @@ class GrobidParser:
             return xml_path
         
         try:
+            # ! Grobid service cannot process pdf file.
             self.client.process("processFulltextDocument", 
-                              f"{pdf_root_path}/{pdf_file}", 
-                              output=output_path)
+                              input_path=f"{pdf_root_path}/{pdf_file}", 
+                              output=output_path, n=1)
             return xml_path
         except Exception as e:
             logger.error(f"Grobid processing failed: {str(e)}")
@@ -56,16 +55,18 @@ class GrobidParser:
         try:
             with open(xml_file, 'r', encoding='utf-8') as f:
                 article = BeautifulSoup(f.read(), "lxml")
-            # TODO If process multiple file need to append result in list
+            
+            publisher, journal = parse_publisher(article)
+            referencecount, text = parse_text(article)
             return {
-                "title": [parse_title(article)],
-                "language": [parse_language(article)],
-                "publisher": [parse_publisher(article)[0]],
-                "journal": [parse_publisher(article)[1]], 
-                "release_year": [parse_year(article)],
-                "doi": [parse_doi(article)],
-                "referencecount": [parse_text(article)[0]],
-                "text": [parse_text(article)[1]]
+                "title": parse_title(article),
+                "language": parse_language(article),
+                "publisher": publisher,
+                "journal": journal, 
+                "release_year": parse_year(article),
+                "doi": parse_doi(article),
+                "referencecount": referencecount,
+                "text": text
             }
         except Exception as e:
             logger.error(f"XML parsing failed: {str(e)}")
@@ -118,7 +119,7 @@ def parse_doi(article):
 
 def parse_references(article):
     """Extract reference title and author name then store as dictionary type"""
-    reference_list = []
+    reference_list = {}
     references = article.find("text")
     if not references:
         return reference_list
@@ -130,14 +131,13 @@ def parse_references(article):
     for elem in references.find_all("biblstruct"):
         ref_id = elem.get('xml:id', "")
         title = elem.find("title", attrs={"level": "a"})
-        # TODO If we cannot find the title, we will skip this reference. Remember to check reference id match its the target appears in <ref>
         if not title:
             title = elem.find("title", attrs={"level": "m"})
         title = title.text if title else ""
         
         authors = elem.find_all("author")
-        if not authors:
-            reference_list.append({"ref_id": ref_id, "title": title, "author": ""})
+        if (not authors) or (not title):
+            # Only keep the reference that contains both title and author info
             continue
             
         author = authors[0]
@@ -150,11 +150,10 @@ def parse_references(article):
         lastname = author.find("surname")
         lastname = lastname.text.strip() if lastname else ""
         
-        reference_list.append({
-            "ref_id": ref_id,
+        reference_list[ref_id] = {
             "title": title,
             "author": f"{lastname} {firstname}{middlename}".strip()
-        })
+        }
         
     return reference_list
 
@@ -193,8 +192,11 @@ def reconstruct_paragraph(paragraph, reference_dict):
             element.get('target') and 
             reference_dict):
             try:
-                target_id = int(element.get('target')[2:]) - 1
-                ref = reference_dict[target_id]
+                target_id = str(element.get('target')[1:])
+                ref = reference_dict.get(target_id, "Not Found")
+                if ref == "Not Found":
+                    # If the target id not exist in reference_dict
+                    continue
                 reference_string = f"[bib_ref] {ref['title']}, {ref['author']} [/bib_ref]"
                 if paragraph_content.endswith("[/bib_ref]"):
                     paragraph_content += " "
@@ -227,12 +229,60 @@ def reconstruct_paragraph(paragraph, reference_dict):
 
 def parse_text(article):
     """Parse and structure the main text content"""
-    common_titles = ["Abstract", "Introduction", "Material and Methods", "Methods", "Results", "Discussion", "Conclusion"]
+    common_titles = ["abstract", "introduction", "materialandmethods", "methods", "results", "discussion", "conclusion"]
     reference_dict = parse_references(article)
+    sections = []
+
+    # Handle abstract section
+    abstract = article.find("abstract")
+    abstract_text = abstract.find_all("div", attrs={"xmlns": "http://www.tei-c.org/ns/1.0"})
+    if abstract_text:
+        sections.append({
+            "heading": "# Abstract\n\n",
+            "text": ""
+        })
     
+    for abstract_div in abstract_text:
+        abstract_list = list(abstract_div.children)
+        if not abstract_list:
+            continue
+        if len(abstract_list) == 1:
+            sections.append({
+                "heading": "",
+                "text": reconstruct_paragraph(abstract_list[0], reference_dict)+"\n\n"
+            })
+            continue
+        
+        heading = ""
+        text_parts = []
+        if isinstance(abstract_list[0], NavigableString):
+            heading_text = abstract_list[0].text
+            # Add \n to separate header-paragraph in same section
+            heading = f"## {heading_text}\n"
+            p_all = abstract_list[1:]
+        else:
+            p_all = abstract_list
+            
+        for p in p_all:
+            if p is not None:
+                text_parts.append(reconstruct_paragraph(p, reference_dict))
+            if p == p_all[-1]:
+                # Add \n\n between last paragraph and the following section
+                text_parts[-1] += "\n\n"
+            else:
+                # Add \n to separate paragraph-paragraph in same section
+                text_parts[-1] += "\n"
+                
+        if heading or text_parts:
+            # If you change to 'and' not 'or', some sections that does not have heading will be skipped
+            sections.append({
+                "heading": heading,
+                "text": text_parts
+            })
+
+    # Handle body section (Cannot change to body tag, else abstract section will process twice)
     article_text = article.find("text")
     divs = article_text.find_all("div", attrs={"xmlns": "http://www.tei-c.org/ns/1.0"})
-    sections = []
     for div in divs:
         div_list = list(div.children)
         
@@ -248,7 +298,7 @@ def parse_text(article):
             else:
                 sections.append({
                     "heading": "",
-                    "text": div_list[0].text
+                    "text": reconstruct_paragraph(div_list[0], reference_dict)
                 })
             continue
             
@@ -259,7 +309,7 @@ def parse_text(article):
         if isinstance(div_list[0], NavigableString):
             heading_text = div_list[0].text
             # Add \n to separate header-paragraph in same section
-            heading = f"# {heading_text}\n" if heading_text in common_titles else f"## {heading_text}\n"
+            heading = f"# {heading_text}\n" if heading_text.strip().lower() in common_titles else f"## {heading_text}\n"
             p_all = div_list[1:]
         else:
             p_all = div_list
@@ -288,7 +338,7 @@ def parse_text(article):
                             "competing interests", "supplementary material", "additional information", 
                             "supplementary information", "data availability", "appendix"]
     for section in sections:
-        if any(x in section["heading"].lower() for x in irrelevant_sections):
+        if any(x.strip() in section["heading"].strip().lower() for x in irrelevant_sections):
             continue
         article_text += section["heading"]
         for text_part in section["text"]:
@@ -302,10 +352,10 @@ if __name__ == '__main__':
         description="Process scholarly literature into structured dataset"
     )
     parser.add_argument(
-        "-f", "--file",
+        "-f", "--folder",
         type=str,
-        default="41467_2024_Article_48433.pdf",
-        help="PDF filename in dataset/medical_paper path"
+        default="dataset/medical_paper/",
+        help="Folder path to store pdf files"
     )
     parser.add_argument(
         "-o", "--output",
@@ -316,16 +366,36 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     grobid_parser = GrobidParser()
-    result = grobid_parser.parse_pdf(args.file)
+    all_results = []
+
+    # Create output directory if it doesn't exist
+    os.makedirs(args.output, exist_ok=True)
+
+    # Get list of PDF files in the folder
+    p = Path.cwd()
+    pdf_root_path = str(p.parent.joinpath(args.folder))
+    pdf_files = [f for f in os.listdir(pdf_root_path) if f.endswith('.pdf')]
+
+    if not pdf_files:
+        logger.error(f"No PDF files found in {args.folder}")
+        sys.exit(1)
     
-    if result and isinstance(result, dict):
-        logger.info("Parsing completed successfully")
-        # BY default, use first record's doi as filename
-        filename = result['doi'][0].split('/')[1]
-        cleaned_filename = filename.replace('-','_')
-        # Export dictionary to csv format
-        df = pd.DataFrame.from_dict(result)
-        df.to_csv(f"{args.output}/{cleaned_filename}.csv")
+    # Process each PDF file
+    for pdf_file in pdf_files:
+        logger.info(f"Processing {pdf_file}")
+        result = grobid_parser.parse_pdf(pdf_file, pdf_root_path)
+        if result and isinstance(result, dict):
+            all_results.append(result)
+            logger.info(f"Successfully parsed {pdf_file}")
+        else:
+            logger.error(f"Failed to parse {pdf_file}")
+    
+    if all_results:
+        # Combine all results into a single DataFrame
+        df = pd.DataFrame(all_results)
+        output_path = f"{args.output}/processed_results.csv"
+        df.to_csv(output_path, index=False)
+        logger.info(f"Combined results saved to {output_path}")
     else:
-        logger.error("Parsing failed")
+        logger.error("No files were successfully parsed")
         sys.exit(1)
