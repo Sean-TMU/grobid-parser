@@ -1,7 +1,0 @@
-{
-    "grobid_server": "http://grobid:8070",
-    "batch_size": 500,
-    "sleep_time": 10,
-    "timeout": 60,
-    "coordinates": [ "persName", "figure", "ref", "biblStruct", "formula", "p", "title"]
-}

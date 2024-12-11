@@ -1,9 +1,12 @@
 import warnings
 warnings.filterwarnings("ignore")
 import os, re, sys, html, argparse
+from dotenv import load_dotenv
+load_dotenv()
+
+import requests
 from bs4 import BeautifulSoup, NavigableString, Tag
 from pathlib import Path
-from grobid_client.grobid_client import GrobidClient
 import logging
 import pandas as pd
 
@@ -16,8 +19,8 @@ logger = logging.getLogger(__name__)
 class GrobidParser:
     """Class to handle parsing of PDF documents using Grobid"""
     
-    def __init__(self, config_path="./config.json"):
-        self.client = GrobidClient(config_path=config_path)
+    def __init__(self):
+        self.grobid_url = os.getenv('GROBID_URL')
         
     def parse_pdf(self, pdf_file: str, pdf_root_path: str) -> dict:
         """Main method to parse PDF and return structured data"""
@@ -32,6 +35,7 @@ class GrobidParser:
 
     def _process_pdf(self, pdf_file: str, pdf_root_path: str) -> str:
         """Process PDF through Grobid service"""
+        pdf_content = []
         output_path = f"{pdf_root_path}/out/"
         filename = os.path.splitext(os.path.basename(pdf_file))[0]
         xml_path = str(Path(output_path).joinpath(f'{filename}.grobid.tei.xml'))
@@ -41,10 +45,15 @@ class GrobidParser:
             return xml_path
         
         try:
-            # ! Grobid service cannot process pdf file.
-            self.client.process("processFulltextDocument", 
-                              input_path=f"{pdf_root_path}/{pdf_file}", 
-                              output=output_path, n=1)
+            # Official python api client failed, so use request instead
+            url = self.grobid_url + "/api/processFulltextDocument"
+            pdf_content += [("input", (open(f"{pdf_root_path}/{pdf_file}", "rb")))]
+            response = requests.post(url, files=pdf_content).text
+            if response is not None:
+                # Export xml content to the disk
+                with open(xml_path, 'w') as fp:
+                    fp.write(response)
+
             return xml_path
         except Exception as e:
             logger.error(f"Grobid processing failed: {str(e)}")
