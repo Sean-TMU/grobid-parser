@@ -1,14 +1,12 @@
-Package              Version
--------------------- -----------
-beautifulsoup4       4.12.3
-python-dotenv        1.0.1
-lxml                 5.3.0
-numpy                2.0.2
-pandas               2.2.3
-requests             2.32.3
-typing_extensions    4.12.2
-urllib3              2.2.3
-Flask                3.1.0
-Werkzeug             3.1.3
-blinker              1.9.0
-itsdangerous         2.2.0
+beautifulsoup4==4.12.3
+python-dotenv==1.0.1
+lxml==5.3.0
+numpy==2.0.2
+pandas==2.2.3
+requests==2.32.3
+typing_extensions==4.12.2
+urllib3==2.2.3
+Flask==3.1.0
+Werkzeug==3.1.3
+blinker==1.9.0
+itsdangerous==2.2.0
