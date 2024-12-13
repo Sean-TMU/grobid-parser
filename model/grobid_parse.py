@@ -12,7 +12,7 @@ class GrobidParser:
     """Class to handle parsing of PDF documents using Grobid"""
     
     def __init__(self):
-        self.grobid_url = os.getenv('GROBID_URL')
+        self.grobid_url = os.environ.get('GROBID_URL')
         # Set up logging
         os.makedirs("logging", exist_ok=True)
         FORMAT = '%(asctime)s %(levelname)s: %(message)s'

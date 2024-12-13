@@ -10,7 +10,7 @@ from flask import (Flask, request, redirect, render_template, flash,
 app = Flask(__name__)
 app.secret_key = os.urandom(12)
 
-UPLOAD_FOLDER = os.getenv("UPLOAD_FOLDER")
+UPLOAD_FOLDER = os.environ.get('UPLOAD_FOLDER')
 ALLOWED_EXTENSIONS = set(['pdf'])
 
 # Check file format
