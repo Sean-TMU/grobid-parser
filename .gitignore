@@ -1,14 +1,10 @@
-# log info
 *.log
-
-# model file
-*.bin
-
-# pyc file
 *.pyc
+__pycache__/
+.vercel
 
 # env file
 *.env
 
-# export result
-result/
+# static files
+static/

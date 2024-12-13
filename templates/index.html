@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta content="width=device-width, initial-scale=1" name="viewport">
+    <!-- Bootstrap CSS -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.0.0/dist/css/bootstrap.min.css" integrity="sha384-Gn5384xqQ1aoWXA+058RXPxPg6fy4IWvTNh0E263XmFcJlSAwiGgFAW/dAiS6JXm" crossorigin="anonymous">
+    
+    <title>GROBID Parser</title>
+</head>
+<body>
+    {% include 'message.html' %}
+    <div class="container">
+        <center>
+            <h1>Upload Scholarly Literature in PDF format</h1>
+            <br><br>
+            <form action="" method=post enctype=multipart/form-data>
+              <p><input type=file name=file>
+                <input type=submit value=Upload>
+            </form>
+        </center>
+        {% if session.get('result') %}
+        <div class="mt-4">
+            <h2>Parsing Results:</h2>
+            <div class="card">
+                <div class="card-body">
+                    {% if session.result.get('title') %}
+                    <h3>Title: {{ session.result.get('title')[0] }}</h3>
+                    {% endif %}
+                    
+                    {% if session.result.get('language') %}
+                    <h3>Language: {{ session.result.get('language')[0] }}</h3>
+                    {% endif %}
+                    
+                    {% if session.result.get('publisher') %}
+                    <h3>Publisher: {{ session.result.get('publisher')[0] }}</h3>
+                    {% endif %}
+
+                    {% if session.result.get('journal') %}
+                    <h3>Journal: {{ session.result.get('journal')[0] }}</h3>
+                    {% endif %}
+
+                    {% if session.result.get('release_year') %}
+                    <h3>Release Date: {{ session.result.get('release_year')[0] }}</h3>
+                    {% endif %}
+
+                    {% if session.result.get('doi') %}
+                    <h3>DOI: {{ session.result.get('doi')[0] }}</h3>
+                    {% endif %}
+
+                    {% if session.result.get('referencecount') %}
+                    <h3>Reference Count: {{ session.result.get('referencecount')[0] }}</h3>
+                    {% endif %}
+                    
+                    {% if session.get('csv_filename') %}
+                    <center>
+                        <a href="{{ url_for('download_file', filename=session.csv_filename) }}" 
+                            class="btn btn-primary mt-3">
+                            Download Results (CSV)
+                        </a>
+                    </center>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</body>
+</html>

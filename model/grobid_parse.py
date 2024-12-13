@@ -1,44 +1,41 @@
 import warnings
 warnings.filterwarnings("ignore")
-import os, re, sys, html, argparse
+import os, re, html
 from dotenv import load_dotenv
 load_dotenv()
 
 import requests
 from bs4 import BeautifulSoup, NavigableString, Tag
-from pathlib import Path
 import logging
-import pandas as pd
-
-# Set up logging
-os.makedirs("logging", exist_ok=True)
-FORMAT = '%(asctime)s %(levelname)s: %(message)s'
-logging.basicConfig(format=FORMAT, level=logging.INFO, filename="logging/debug.log", filemode="a")
-logger = logging.getLogger(__name__)
 
 class GrobidParser:
     """Class to handle parsing of PDF documents using Grobid"""
     
     def __init__(self):
         self.grobid_url = os.getenv('GROBID_URL')
-        
-    def parse_pdf(self, pdf_file: str, pdf_root_path: str) -> dict:
+        # Set up logging
+        os.makedirs("logging", exist_ok=True)
+        FORMAT = '%(asctime)s %(levelname)s: %(message)s'
+        logging.basicConfig(format=FORMAT, level=logging.INFO, filename="logging/debug.log", filemode="a")
+        logger = logging.getLogger(__name__)
+        self.logger = logger
+    
+    def parse_pdf(self, root_folder:str, pdf_file: str) -> dict:
         """Main method to parse PDF and return structured data"""
         try:
-            xml_path = self._process_pdf(pdf_file, pdf_root_path)
+            xml_path = self._process_pdf(root_folder, pdf_file)
             if xml_path and os.path.exists(xml_path):
                 return self._parse_xml(xml_path)
             return None
         except Exception as e:
-            logger.error(f"Error parsing PDF {pdf_file}: {str(e)}")
+            self.logger.error(f"Error parsing PDF {pdf_file}: {str(e)}")
             return None
 
-    def _process_pdf(self, pdf_file: str, pdf_root_path: str) -> str:
+    def _process_pdf(self, root_folder: str, pdf_file: str) -> str:
         """Process PDF through Grobid service"""
         pdf_content = []
-        output_path = f"{pdf_root_path}/out/"
         filename = os.path.splitext(os.path.basename(pdf_file))[0]
-        xml_path = str(Path(output_path).joinpath(f'{filename}.grobid.tei.xml'))
+        xml_path = os.path.join(root_folder, f'{filename}.grobid.tei.xml')
         
         # If the XML file already exists, return the path
         if os.path.exists(xml_path):
@@ -47,7 +44,7 @@ class GrobidParser:
         try:
             # Official python api client failed, so use request instead
             url = self.grobid_url + "/api/processFulltextDocument"
-            pdf_content += [("input", (open(f"{pdf_root_path}/{pdf_file}", "rb")))]
+            pdf_content += [("input", (open(f"{root_folder}/{pdf_file}", "rb")))]
             response = requests.post(url, files=pdf_content).text
             if response is not None:
                 # Export xml content to the disk
@@ -56,7 +53,7 @@ class GrobidParser:
 
             return xml_path
         except Exception as e:
-            logger.error(f"Grobid processing failed: {str(e)}")
+            self.logger.error(f"Grobid processing failed: {str(e)}")
             return None
 
     def _parse_xml(self, xml_file: str) -> dict:
@@ -68,17 +65,17 @@ class GrobidParser:
             publisher, journal = parse_publisher(article)
             referencecount, text = parse_text(article)
             return {
-                "title": parse_title(article),
-                "language": parse_language(article),
-                "publisher": publisher,
-                "journal": journal, 
-                "release_year": parse_year(article),
-                "doi": parse_doi(article),
-                "referencecount": referencecount,
-                "text": text
+                "title": [parse_title(article)],
+                "language": [parse_language(article)],
+                "publisher": [publisher],
+                "journal": [journal], 
+                "release_year": [parse_year(article)],
+                "doi": [parse_doi(article)],
+                "referencecount": [referencecount],
+                "text": [text]
             }
         except Exception as e:
-            logger.error(f"XML parsing failed: {str(e)}")
+            self.logger.error(f"XML parsing failed: {str(e)}")
             return None
 
 def parse_title(article):
@@ -173,29 +170,6 @@ def reconstruct_paragraph(paragraph, reference_dict):
     switch = False # Determine the ')' or ' 'comes from figure/table or bib reference or not
     paragraph_content = ""
     for element in paragraph.contents:
-        # # Although it can capture the <numeric>-<numeric> pattern, however, some special case like gene or age is hard to determine.
-        # if isinstance(element, NavigableString):
-        #     text = element.text
-        #     # Check for numeric range patterns in text (e.g., "1-3", "24-26", etc.)
-        #     pattern = r'\[?(\d+)-(\d+)\]?'
-        #     matches = list(re.finditer(pattern, text))
-        #     for match in matches:
-        #         # Handle multiple occurances of this pattern in a single paragraph
-        #         start = int(match.group(1))
-        #         end = int(match.group(2))
-        #         if start <= end:
-        #             for ref_idx in range(start - 1, end):
-        #                 # Replace the numeric with formatted reference string
-        #                 try:
-        #                     ref = reference_dict[ref_idx]
-        #                     reference_string = f"[bib_ref] {ref['title']}, {ref['author']} [/bib_ref]"
-        #                     if paragraph_content.endswith("[/bib_ref]"):
-        #                         paragraph_content += " "
-        #                     paragraph_content += reference_string
-        #                 except IndexError:
-        #                     logger.warning(f"Invalid reference index: {ref_idx}")
-        #                     continue
-
         if (isinstance(element, Tag) and 
             element.get('type') == "bibr" and 
             element.get('target') and 
@@ -355,56 +329,56 @@ def parse_text(article):
     
     return len(reference_dict), article_text
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(
-        prog="grobid_parse.py",
-        description="Process scholarly literature into structured dataset"
-    )
-    parser.add_argument(
-        "-f", "--folder",
-        type=str,
-        default="dataset/medical_paper/",
-        help="Folder path to store pdf files"
-    )
-    parser.add_argument(
-        "-o", "--output",
-        type=str,
-        default="result",
-        help="Folder name to stored csv format output"
-    )
-    args = parser.parse_args()
+# if __name__ == '__main__':
+#     parser = argparse.ArgumentParser(
+#         prog="grobid_parse.py",
+#         description="Process scholarly literature into structured dataset"
+#     )
+#     parser.add_argument(
+#         "-f", "--folder",
+#         type=str,
+#         default="dataset/medical_paper/",
+#         help="Folder path to store pdf files"
+#     )
+#     parser.add_argument(
+#         "-o", "--output",
+#         type=str,
+#         default="result",
+#         help="Folder name to stored csv format output"
+#     )
+#     args = parser.parse_args()
 
-    grobid_parser = GrobidParser()
-    all_results = []
+#     grobid_parser = GrobidParser()
+#     all_results = []
 
-    # Create output directory if it doesn't exist
-    os.makedirs(args.output, exist_ok=True)
+#     # Create output directory if it doesn't exist
+#     os.makedirs(args.output, exist_ok=True)
 
-    # Get list of PDF files in the folder
-    p = Path.cwd()
-    pdf_root_path = str(p.parent.joinpath(args.folder))
-    pdf_files = [f for f in os.listdir(pdf_root_path) if f.endswith('.pdf')]
+#     # Get list of PDF files in the folder
+#     p = Path.cwd()
+#     pdf_root_path = str(p.parent.joinpath(args.folder))
+#     pdf_files = [f for f in os.listdir(pdf_root_path) if f.endswith('.pdf')]
 
-    if not pdf_files:
-        logger.error(f"No PDF files found in {args.folder}")
-        sys.exit(1)
+#     if not pdf_files:
+#         logger.error(f"No PDF files found in {args.folder}")
+#         sys.exit(1)
     
-    # Process each PDF file
-    for pdf_file in pdf_files:
-        logger.info(f"Processing {pdf_file}")
-        result = grobid_parser.parse_pdf(pdf_file, pdf_root_path)
-        if result and isinstance(result, dict):
-            all_results.append(result)
-            logger.info(f"Successfully parsed {pdf_file}")
-        else:
-            logger.error(f"Failed to parse {pdf_file}")
+#     # Process each PDF file
+#     for pdf_file in pdf_files:
+#         logger.info(f"Processing {pdf_file}")
+#         result = grobid_parser.parse_pdf(pdf_file, pdf_root_path)
+#         if result and isinstance(result, dict):
+#             all_results.append(result)
+#             logger.info(f"Successfully parsed {pdf_file}")
+#         else:
+#             logger.error(f"Failed to parse {pdf_file}")
     
-    if all_results:
-        # Combine all results into a single DataFrame
-        df = pd.DataFrame(all_results)
-        output_path = f"{args.output}/processed_results.csv"
-        df.to_csv(output_path, index=False)
-        logger.info(f"Combined results saved to {output_path}")
-    else:
-        logger.error("No files were successfully parsed")
-        sys.exit(1)
+#     if all_results:
+#         # Combine all results into a single DataFrame
+#         df = pd.DataFrame(all_results)
+#         output_path = f"{args.output}/processed_results.csv"
+#         df.to_csv(output_path, index=False)
+#         logger.info(f"Combined results saved to {output_path}")
+#     else:
+#         logger.error("No files were successfully parsed")
+#         sys.exit(1)
