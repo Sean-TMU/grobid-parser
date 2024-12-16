@@ -14,10 +14,13 @@ class GrobidParser:
     def __init__(self):
         self.grobid_url = os.environ.get('GROBID_URL')
         # Set up logging
-        os.makedirs("logging", exist_ok=True)
-        FORMAT = '%(asctime)s %(levelname)s: %(message)s'
-        logging.basicConfig(format=FORMAT, level=logging.INFO, filename="logging/debug.log", filemode="a")
-        logger = logging.getLogger(__name__)
+        log_level = 'INFO'
+        logger = logging.getLogger()
+        logger.setLevel(log_level)
+
+        console_handler = logging.StreamHandler()
+        console_handler.setLevel(log_level)
+        logger.addHandler(console_handler)
         self.logger = logger
     
     def parse_pdf(self, root_folder:str, pdf_file: str) -> dict:
@@ -186,7 +189,7 @@ def reconstruct_paragraph(paragraph, reference_dict):
                 paragraph_content += reference_string
                 switch = True
             except (ValueError, IndexError):
-                logger.warning(f"Invalid reference target: {element.get('target')}")
+                print(f"Invalid reference target: {element.get('target')}")
                 continue
                 
         elif isinstance(element, Tag) and element.get('type'):
@@ -328,57 +331,3 @@ def parse_text(article):
             article_text += text_part
     
     return len(reference_dict), article_text
-
-# if __name__ == '__main__':
-#     parser = argparse.ArgumentParser(
-#         prog="grobid_parse.py",
-#         description="Process scholarly literature into structured dataset"
-#     )
-#     parser.add_argument(
-#         "-f", "--folder",
-#         type=str,
-#         default="dataset/medical_paper/",
-#         help="Folder path to store pdf files"
-#     )
-#     parser.add_argument(
-#         "-o", "--output",
-#         type=str,
-#         default="result",
-#         help="Folder name to stored csv format output"
-#     )
-#     args = parser.parse_args()
-
-#     grobid_parser = GrobidParser()
-#     all_results = []
-
-#     # Create output directory if it doesn't exist
-#     os.makedirs(args.output, exist_ok=True)
-
-#     # Get list of PDF files in the folder
-#     p = Path.cwd()
-#     pdf_root_path = str(p.parent.joinpath(args.folder))
-#     pdf_files = [f for f in os.listdir(pdf_root_path) if f.endswith('.pdf')]
-
-#     if not pdf_files:
-#         logger.error(f"No PDF files found in {args.folder}")
-#         sys.exit(1)
-    
-#     # Process each PDF file
-#     for pdf_file in pdf_files:
-#         logger.info(f"Processing {pdf_file}")
-#         result = grobid_parser.parse_pdf(pdf_file, pdf_root_path)
-#         if result and isinstance(result, dict):
-#             all_results.append(result)
-#             logger.info(f"Successfully parsed {pdf_file}")
-#         else:
-#             logger.error(f"Failed to parse {pdf_file}")
-    
-#     if all_results:
-#         # Combine all results into a single DataFrame
-#         df = pd.DataFrame(all_results)
-#         output_path = f"{args.output}/processed_results.csv"
-#         df.to_csv(output_path, index=False)
-#         logger.info(f"Combined results saved to {output_path}")
-#     else:
-#         logger.error("No files were successfully parsed")
-#         sys.exit(1)
